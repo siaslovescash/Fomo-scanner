@@ -1,8 +1,42 @@
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 import discord
 from discord.ext import commands
+
 from scanner import snipe_scan
 
+
+# =========================
+# Render Web Server
+# =========================
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Discord bot is running!")
+
+    def log_message(self, format, *args):
+        return
+
+
+def start_web_server():
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    print(f"Web server listening on port {port}")
+    server.serve_forever()
+
+
+# Start the web server in the background
+web_thread = threading.Thread(target=start_web_server, daemon=True)
+web_thread.start()
+
+
+# =========================
+# Discord Bot
+# =========================
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if not TOKEN:
@@ -119,4 +153,7 @@ async def setup_hook():
     await bot.tree.sync()
 
 
+# =========================
+# Start Discord Bot
+# =========================
 bot.run(TOKEN)
