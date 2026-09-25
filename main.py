@@ -1,6 +1,5 @@
 import os
 import threading
-import asyncio
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import discord
@@ -10,7 +9,7 @@ from scanner import snipe_scan
 
 
 # =========================
-# Render Web Server
+# Render Health Server
 # =========================
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -25,19 +24,24 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 def start_web_server():
     port = int(os.getenv("PORT", "10000"))
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
 
-    print(f"WEB SERVER STARTED ON PORT {port}", flush=True)
+    server = HTTPServer(
+        ("0.0.0.0", port),
+        HealthHandler
+    )
+
+    print(
+        f"WEB SERVER STARTED ON PORT {port}",
+        flush=True
+    )
 
     server.serve_forever()
 
 
-web_thread = threading.Thread(
+threading.Thread(
     target=start_web_server,
     daemon=True
-)
-
-web_thread.start()
+).start()
 
 
 # =========================
@@ -50,11 +54,13 @@ if not TOKEN:
 
 
 # =========================
-# Discord Bot
+# Discord Intents
 # =========================
 intents = discord.Intents.default()
+
 intents.message_content = True
 intents.members = True
+
 
 bot = commands.Bot(
     command_prefix="!",
@@ -63,114 +69,187 @@ bot = commands.Bot(
 
 
 # =========================
-# Connection Monitoring
+# Gateway Monitor
 # =========================
 @tasks.loop(seconds=30)
-async def heartbeat_monitor():
+async def gateway_monitor():
+
     try:
         latency = bot.latency
 
-        if latency == float("inf"):
-            print(
-                "BOT HEARTBEAT WARNING | Discord connection not available",
-                flush=True
-            )
-        else:
-            print(
-                f"BOT HEARTBEAT OK | Latency: {latency * 1000:.0f}ms | "
-                f"Ready: {bot.is_ready()} | "
-                f"Servers: {len(bot.guilds)}",
-                flush=True
-            )
+        print(
+            "GATEWAY STATUS | "
+            f"Ready={bot.is_ready()} | "
+            f"Latency={latency * 1000:.0f}ms | "
+            f"Guilds={len(bot.guilds)} | "
+            f"User={bot.user}",
+            flush=True
+        )
 
     except Exception as error:
+
         print(
-            f"HEARTBEAT MONITOR ERROR: {error}",
+            f"GATEWAY MONITOR ERROR | {error}",
             flush=True
         )
 
 
-@heartbeat_monitor.before_loop
-async def before_heartbeat_monitor():
+@gateway_monitor.before_loop
+async def before_gateway_monitor():
+
     await bot.wait_until_ready()
 
 
 # =========================
-# Discord Events
+# Gateway Events
 # =========================
 @bot.event
 async def on_connect():
-    print("DISCORD CONNECTED TO GATEWAY", flush=True)
+
+    print(
+        "EVENT: DISCORD CONNECTED TO GATEWAY",
+        flush=True
+    )
 
 
 @bot.event
 async def on_disconnect():
-    print("DISCORD DISCONNECTED FROM GATEWAY", flush=True)
+
+    print(
+        "EVENT: DISCORD DISCONNECTED FROM GATEWAY",
+        flush=True
+    )
 
 
 @bot.event
 async def on_resumed():
-    print("DISCORD SESSION RESUMED", flush=True)
 
-
-@bot.event
-async def on_ready():
-    print("========================================", flush=True)
-    print("BOT IS ONLINE", flush=True)
-    print(f"BOT NAME: {bot.user}", flush=True)
-    print(f"BOT ID: {bot.user.id}", flush=True)
-    print(f"SERVERS: {len(bot.guilds)}", flush=True)
-
-    for guild in bot.guilds:
-        print(
-            f"SERVER: {guild.name} | ID: {guild.id}",
-            flush=True
-        )
-
-    print("========================================", flush=True)
-
-    if not heartbeat_monitor.is_running():
-        heartbeat_monitor.start()
-        print("HEARTBEAT MONITOR STARTED", flush=True)
-
-
-# =========================
-# Interaction Logging
-# =========================
-@bot.event
-async def on_interaction(interaction: discord.Interaction):
-    try:
-        command_name = "UNKNOWN"
-
-        if interaction.command:
-            command_name = interaction.command.name
-
-        print("========================================", flush=True)
-        print("DISCORD INTERACTION RECEIVED", flush=True)
-        print(f"TYPE: {interaction.type}", flush=True)
-        print(f"COMMAND: /{command_name}", flush=True)
-        print(f"USER: {interaction.user}", flush=True)
-        print(f"GUILD: {interaction.guild}", flush=True)
-        print("========================================", flush=True)
-
-    except Exception as error:
-        print(
-            f"INTERACTION LOG ERROR: {error}",
-            flush=True
-        )
-
-
-# =========================
-# Prefix Command
-# =========================
-@bot.command()
-async def ping(ctx):
     print(
-        f"PREFIX COMMAND RECEIVED: !ping | USER: {ctx.author}",
+        "EVENT: DISCORD SESSION RESUMED",
         flush=True
     )
 
-    await ctx.send("Pong! 🏓")
+
+# =========================
+# Ready
+# =========================
+@bot.event
+async def on_ready():
+
+    print("========================================", flush=True)
+
+    print(
+        "EVENT: BOT READY",
+        flush=True
+    )
+
+    print(
+        f"BOT: {bot.user}",
+        flush=True
+    )
+
+    print(
+        f"BOT ID: {bot.user.id}",
+        flush=True
+    )
+
+    print(
+        f"GUILDS: {len(bot.guilds)}",
+        flush=True
+    )
+
+    for guild in bot.guilds:
+
+        print(
+            f"GUILD: {guild.name} | {guild.id}",
+            flush=True
+        )
+
+    print("========================================", flush=True)
+
+    if not gateway_monitor.is_running():
+
+        gateway_monitor.start()
+
+        print(
+            "GATEWAY MONITOR STARTED",
+            flush=True
+        )
+
+
+# =========================
+# MESSAGE EVENT MONITOR
+# =========================
+@bot.event
+async def on_message(message):
+
+    try:
+
+        if message.author.bot:
+            return
+
+        print(
+            "EVENT: MESSAGE RECEIVED | "
+            f"USER={message.author} | "
+            f"CHANNEL={message.channel} | "
+            f"CONTENT={message.content[:100]}",
+            flush=True
+        )
+
+        await bot.process_commands(message)
+
+    except Exception as error:
+
+        print(
+            f"MESSAGE EVENT ERROR | {error}",
+            flush=True
+        )
+
+
+# =========================
+# INTERACTION MONITOR
+# =========================
+@bot.event
+async def on_interaction(interaction):
+
+    try:
+
+        command_name = "UNKNOWN"
+
+        if interaction.command:
+
+            command_name = interaction.command.name
+
+        print(
+            "EVENT: INTERACTION RECEIVED | "
+            f"TYPE={interaction.type} | "
+            f"COMMAND=/{command_name} | "
+            f"USER={interaction.user}",
+            flush=True
+        )
+
+    except Exception as error:
+
+        print(
+            f"INTERACTION EVENT ERROR | {error}",
+            flush=True
+        )
+
+
+# =========================
+# !ping
+# =========================
+@bot.command()
+async def ping(ctx):
+
+    print(
+        f"COMMAND: !ping | USER={ctx.author}",
+        flush=True
+    )
+
+    await ctx.send(
+        "Pong! 🏓"
+    )
 
 
 # =========================
@@ -180,10 +259,10 @@ async def ping(ctx):
     name="ping",
     description="Check if the bot is online"
 )
-async def slash_ping(interaction: discord.Interaction):
+async def slash_ping(interaction):
 
     print(
-        "SLASH COMMAND RUNNING: /ping",
+        "COMMAND: /ping",
         flush=True
     )
 
@@ -202,20 +281,22 @@ async def slash_ping(interaction: discord.Interaction):
 @discord.app_commands.checks.has_permissions(
     manage_messages=True
 )
-async def clear(interaction: discord.Interaction):
+async def clear(interaction):
 
     print(
-        f"SLASH COMMAND RUNNING: /clear | USER: {interaction.user}",
+        f"COMMAND: /clear | USER={interaction.user}",
         flush=True
     )
 
     channel = interaction.channel
 
     if not isinstance(channel, discord.TextChannel):
+
         await interaction.response.send_message(
             "❌ This command can only be used in a text channel.",
             ephemeral=True
         )
+
         return
 
     await interaction.response.defer(
@@ -223,13 +304,14 @@ async def clear(interaction: discord.Interaction):
     )
 
     try:
+
         deleted = await channel.purge(
             limit=None,
             bulk=True
         )
 
         print(
-            f"CLEAR FINISHED | DELETED: {len(deleted)}",
+            f"CLEAR COMPLETE | DELETED={len(deleted)}",
             flush=True
         )
 
@@ -241,7 +323,7 @@ async def clear(interaction: discord.Interaction):
     except Exception as error:
 
         print(
-            f"CLEAR ERROR: {error}",
+            f"CLEAR ERROR | {error}",
             flush=True
         )
 
@@ -258,10 +340,10 @@ async def clear(interaction: discord.Interaction):
     name="snipe",
     description="Scan for newly detected coins"
 )
-async def snipe(interaction: discord.Interaction):
+async def snipe(interaction):
 
     print(
-        "SLASH COMMAND RUNNING: /snipe",
+        "COMMAND: /snipe",
         flush=True
     )
 
@@ -270,22 +352,24 @@ async def snipe(interaction: discord.Interaction):
     try:
 
         print(
-            "STARTING SNIPE SCANNER...",
+            "SNIPE SCANNER STARTING",
             flush=True
         )
 
         coins = await snipe_scan()
 
         print(
-            f"SNIPE SCANNER FINISHED | RESULTS: "
-            f"{len(coins) if coins else 0}",
+            f"SNIPE SCANNER FINISHED | "
+            f"RESULTS={len(coins) if coins else 0}",
             flush=True
         )
 
         if not coins:
+
             await interaction.followup.send(
                 "No coins found."
             )
+
             return
 
         message = ""
@@ -313,7 +397,7 @@ async def snipe(interaction: discord.Interaction):
     except Exception as error:
 
         print(
-            f"SNIPE ERROR: {error}",
+            f"SNIPE ERROR | {error}",
             flush=True
         )
 
@@ -328,32 +412,37 @@ async def snipe(interaction: discord.Interaction):
 # =========================
 @bot.tree.error
 async def on_app_command_error(
-    interaction: discord.Interaction,
+    interaction,
     error
 ):
 
-    print("========================================", flush=True)
-    print("SLASH COMMAND ERROR", flush=True)
     print(
-        f"ERROR TYPE: {type(error).__name__}",
+        "========================================",
         flush=True
     )
+
     print(
-        f"ERROR: {error}",
+        f"SLASH COMMAND ERROR | "
+        f"{type(error).__name__} | {error}",
         flush=True
     )
-    print("========================================", flush=True)
+
+    print(
+        "========================================",
+        flush=True
+    )
 
 
 # =========================
-# Sync Commands
+# Sync Slash Commands
 # =========================
 @bot.event
 async def setup_hook():
 
-    print("========================================", flush=True)
-    print("SYNCING SLASH COMMANDS...", flush=True)
-    print("========================================", flush=True)
+    print(
+        "SYNCING SLASH COMMANDS...",
+        flush=True
+    )
 
     try:
 
@@ -374,16 +463,17 @@ async def setup_hook():
     except Exception as error:
 
         print(
-            f"SLASH COMMAND SYNC ERROR: {error}",
+            f"SLASH COMMAND SYNC ERROR | {error}",
             flush=True
         )
 
 
 # =========================
-# Start Bot
+# Start
 # =========================
-print("========================================", flush=True)
-print("STARTING DISCORD BOT...", flush=True)
-print("========================================", flush=True)
+print(
+    "STARTING DISCORD BOT...",
+    flush=True
+)
 
 bot.run(TOKEN)
