@@ -16,11 +16,18 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 def start_web_server():
-    port = int(os.getenv("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    port = int(os.getenv("PORT", "10000"))
+    server = HTTPServer(
+        ("0.0.0.0", port),
+        HealthHandler
+    )
     print(f"Web server listening on port {port}")
     server.serve_forever()
-web_thread = threading.Thread(target=start_web_server, daemon=True)
+# Start Render web server
+web_thread = threading.Thread(
+    target=start_web_server,
+    daemon=True
+)
 web_thread.start()
 # =========================
 # Discord Bot
@@ -35,10 +42,18 @@ bot = commands.Bot(
     command_prefix="!",
     intents=intents
 )
+# =========================
+# Bot Ready
+# =========================
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
-    print(f"Connected to {len(bot.guilds)} server(s)")
+    print("=================================")
+    print(f"BOT ONLINE: {bot.user}")
+    print(f"BOT ID: {bot.user.id}")
+    print(f"CONNECTED TO {len(bot.guilds)} SERVER(S)")
+    for guild in bot.guilds:
+        print(f"SERVER: {guild.name} | ID: {guild.id}")
+    print("=================================")
 # =========================
 # Prefix Ping
 # =========================
@@ -53,7 +68,9 @@ async def ping(ctx):
     description="Check if the bot is online"
 )
 async def slash_ping(interaction: discord.Interaction):
-    await interaction.response.send_message("Pong! 🏓")
+    await interaction.response.send_message(
+        "Pong! 🏓"
+    )
 # =========================
 # CLEAR CHANNEL
 # =========================
@@ -61,7 +78,9 @@ async def slash_ping(interaction: discord.Interaction):
     name="clear",
     description="Delete all messages in this channel"
 )
-@discord.app_commands.checks.has_permissions(manage_messages=True)
+@discord.app_commands.checks.has_permissions(
+    manage_messages=True
+)
 async def clear(interaction: discord.Interaction):
     channel = interaction.channel
     if not isinstance(channel, discord.TextChannel):
@@ -70,52 +89,52 @@ async def clear(interaction: discord.Interaction):
             ephemeral=True
         )
         return
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(
+        ephemeral=True
+    )
     try:
-        deleted_count = 0
-        # Delete messages in batches.
-        # Discord only allows bulk deletion for messages
-        # newer than 14 days, so older messages are deleted
-        # individually.
-        while True:
-            messages = [
-                message async for message in channel.history(limit=100)
-            ]
-            if not messages:
-                break
-            # Separate recent and old messages
-            recent_messages = []
-            old_messages = []
-            for message in messages:
-                if message.id:
-                    recent_messages.append(message)
-            if recent_messages:
-                try:
-                    await channel.delete_messages(recent_messages)
-                    deleted_count += len(recent_messages)
-                except discord.HTTPException:
-                    # If bulk deletion fails, delete individually
-                    for message in recent_messages:
-                        try:
-                            await message.delete()
-                            deleted_count += 1
-                        except discord.HTTPException:
-                            pass
-            if len(messages) < 100:
-                break
+        print(
+            f"Clear requested in #{channel.name} "
+            f"by {interaction.user}"
+        )
+        deleted = await channel.purge(
+            limit=None,
+            bulk=True
+        )
+        print(
+            f"Deleted {len(deleted)} messages "
+            f"from #{channel.name}"
+        )
         await interaction.followup.send(
-            f"🧹 Channel cleared! Deleted **{deleted_count} messages**.",
+            f"🧹 Channel cleared!\n"
+            f"Deleted **{len(deleted)} messages**.",
             ephemeral=True
         )
     except discord.Forbidden:
+        print(
+            f"Permission error clearing #{channel.name}"
+        )
         await interaction.followup.send(
-            "❌ I don't have permission to delete messages in this channel.",
+            "❌ I don't have permission to delete "
+            "messages in this channel.",
             ephemeral=True
         )
     except discord.HTTPException as error:
-        print(f"Clear error: {error}")
+        print(
+            f"Discord error while clearing channel: {error}"
+        )
         await interaction.followup.send(
-            "❌ Discord returned an error while clearing the channel.",
+            "❌ Discord returned an error while "
+            "clearing the channel.",
+            ephemeral=True
+        )
+    except Exception as error:
+        print(
+            f"Unexpected clear error: {error}"
+        )
+        await interaction.followup.send(
+            "❌ Something went wrong while clearing "
+            "the channel. Check the Render logs.",
             ephemeral=True
         )
 # =========================
@@ -136,16 +155,42 @@ async def snipe(interaction: discord.Interaction):
             return
         message = "**🎯 FOMO SNIPE SCANNER**\n\n"
         for coin in coins:
-            name = coin.get("name", "Unknown")
-            symbol = coin.get("symbol", "???")
-            chain = coin.get("chain", "Unknown")
-            market_cap = coin.get("market_cap", 0)
-            liquidity = coin.get("liquidity", 0)
-            volume = coin.get("volume_24h", 0)
-            age = coin.get("age", "Unknown")
-            address = coin.get("address", "Unknown")
+            name = coin.get(
+                "name",
+                "Unknown"
+            )
+            symbol = coin.get(
+                "symbol",
+                "???"
+            )
+            chain = coin.get(
+                "chain",
+                "Unknown"
+            )
+            market_cap = coin.get(
+                "market_cap",
+                0
+            )
+            liquidity = coin.get(
+                "liquidity",
+                0
+            )
+            volume = coin.get(
+                "volume_24h",
+                0
+            )
+            age = coin.get(
+                "age",
+                "Unknown"
+            )
+            address = coin.get(
+                "address",
+                "Unknown"
+            )
             url = coin.get("url")
-            bubble_url = coin.get("bubblemaps")
+            bubble_url = coin.get(
+                "bubblemaps"
+            )
             message += (
                 f"🪙 **{name} ({symbol})**\n"
                 f"⛓️ Chain: **{chain}**\n"
@@ -156,17 +201,25 @@ async def snipe(interaction: discord.Interaction):
                 f"📍 Contract: `{address}`\n"
             )
             if url:
-                message += f"🔗 [Coin / Chart]({url})\n"
+                message += (
+                    f"🔗 [Coin / Chart]({url})\n"
+                )
             if bubble_url:
-                message += f"🫧 [Bubblemaps]({bubble_url})\n"
+                message += (
+                    f"🫧 [Bubblemaps]({bubble_url})\n"
+                )
             message += "\n"
-        # Discord messages cannot exceed 2,000 characters.
+        # Discord messages have a 2,000 character limit.
         if len(message) <= 2000:
-            await interaction.followup.send(message)
+            await interaction.followup.send(
+                message
+            )
         else:
             chunks = []
             current = ""
-            for line in message.splitlines(keepends=True):
+            for line in message.splitlines(
+                keepends=True
+            ):
                 if len(current) + len(line) > 1900:
                     chunks.append(current)
                     current = line
@@ -175,20 +228,40 @@ async def snipe(interaction: discord.Interaction):
             if current:
                 chunks.append(current)
             for chunk in chunks:
-                await interaction.followup.send(chunk)
+                await interaction.followup.send(
+                    chunk
+                )
     except Exception as error:
-        print(f"Snipe error: {error}")
+        print(
+            f"Snipe error: {error}"
+        )
         await interaction.followup.send(
             "❌ The scanner encountered an error. "
             "Check the Render logs."
         )
 # =========================
-# Sync Slash Commands
+# Slash Command Sync
 # =========================
 @bot.event
 async def setup_hook():
-    await bot.tree.sync()
+    print("Syncing slash commands...")
+    try:
+        synced = await bot.tree.sync()
+        print(
+            f"Successfully synced "
+            f"{len(synced)} slash command(s)."
+        )
+        for command in synced:
+            print(
+                f"Slash command available: "
+                f"/{command.name}"
+            )
+    except Exception as error:
+        print(
+            f"Slash command sync error: {error}"
+        )
 # =========================
-# Start Discord Bot
+# Start Bot
 # =========================
+print("Starting Discord bot...")
 bot.run(TOKEN)
