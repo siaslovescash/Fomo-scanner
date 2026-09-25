@@ -15,14 +15,17 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Discord bot is running!")
     def log_message(self, format, *args):
         return
+
 def start_web_server():
     port = int(os.getenv("PORT", "10000"))
     server = HTTPServer(
         ("0.0.0.0", port),
         HealthHandler
     )
-    print(f"WEB SERVER STARTED ON PORT {port}")
+    print(f"WEB SERVER STARTED ON PORT {port}", flush=True)
     server.serve_forever()
+
+
 web_thread = threading.Thread(
     target=start_web_server,
     daemon=True
@@ -34,34 +37,106 @@ web_thread.start()
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN is missing")
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+
 bot = commands.Bot(
     command_prefix="!",
     intents=intents
 )
 # =========================================================
-# BOT READY
+# DISCORD CONNECTION EVENTS
 # =========================================================
 @bot.event
+async def on_connect():
+    print(
+        "DISCORD CONNECTED TO GATEWAY",
+        flush=True
+    )
+
+
+@bot.event
+async def on_disconnect():
+    print(
+        "DISCORD DISCONNECTED FROM GATEWAY",
+        flush=True
+    )
+
+
+@bot.event
+async def on_resumed():
+    print(
+        "DISCORD SESSION RESUMED",
+        flush=True
+    )
+
+
+@bot.event
 async def on_ready():
-    print("========================================")
-    print("BOT IS ONLINE")
-    print(f"BOT NAME: {bot.user}")
-    print(f"BOT ID: {bot.user.id}")
-    print(f"SERVERS: {len(bot.guilds)}")
+    print("========================================", flush=True)
+    print("BOT IS ONLINE", flush=True)
+    print(f"BOT NAME: {bot.user}", flush=True)
+    print(f"BOT ID: {bot.user.id}", flush=True)
+    print(f"SERVERS: {len(bot.guilds)}", flush=True)
     for guild in bot.guilds:
         print(
-            f"SERVER: {guild.name} | "
-            f"ID: {guild.id}"
+            f"SERVER: {guild.name} | ID: {guild.id}",
+            flush=True
         )
-    print("========================================")
+    print("========================================", flush=True)
+# =========================================================
+# GLOBAL INTERACTION LOGGER
+# =========================================================
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    try:
+        command_name = "UNKNOWN"
+        if interaction.command:
+            command_name = interaction.command.name
+        print(
+            "========================================",
+            flush=True
+        )
+        print(
+            "DISCORD INTERACTION RECEIVED",
+            flush=True
+        )
+        print(
+            f"TYPE: {interaction.type}",
+            flush=True
+        )
+        print(
+            f"COMMAND: /{command_name}",
+            flush=True
+        )
+        print(
+            f"USER: {interaction.user}",
+            flush=True
+        )
+        print(
+            f"GUILD: {interaction.guild}",
+            flush=True
+        )
+        print(
+            "========================================",
+            flush=True
+        )
+    except Exception as error:
+        print(
+            f"INTERACTION LOG ERROR: {error}",
+            flush=True
+        )
 # =========================================================
 # PREFIX PING
 # =========================================================
 @bot.command()
 async def ping(ctx):
+    print(
+        f"PREFIX COMMAND RECEIVED: !ping | USER: {ctx.author}",
+        flush=True
+    )
     await ctx.send("Pong! 🏓")
 # =========================================================
 # SLASH PING
@@ -70,9 +145,11 @@ async def ping(ctx):
     name="ping",
     description="Check if the bot is online"
 )
-async def slash_ping(
-    interaction: discord.Interaction
-):
+async def slash_ping(interaction: discord.Interaction):
+    print(
+        "SLASH COMMAND RUNNING: /ping",
+        flush=True
+    )
     await interaction.response.send_message(
         "Pong! 🏓"
     )
@@ -86,9 +163,11 @@ async def slash_ping(
 @discord.app_commands.checks.has_permissions(
     manage_messages=True
 )
-async def clear(
-    interaction: discord.Interaction
-):
+async def clear(interaction: discord.Interaction):
+    print(
+        "SLASH COMMAND RUNNING: /clear",
+        flush=True
+    )
     channel = interaction.channel
     if interaction.guild is None:
         await interaction.response.send_message(
@@ -102,7 +181,6 @@ async def clear(
             ephemeral=True
         )
         return
-    # Get the bot's member object in this server
     bot_member = interaction.guild.me
     if bot_member is None:
         await interaction.response.send_message(
@@ -110,42 +188,40 @@ async def clear(
             ephemeral=True
         )
         return
-    # Check the bot's REAL permissions in this channel
     permissions = channel.permissions_for(bot_member)
-    print("========================================")
-    print("CLEAR COMMAND USED")
-    print(f"SERVER: {interaction.guild.name}")
-    print(f"CHANNEL: #{channel.name}")
-    print(f"USER: {interaction.user}")
-    print(f"BOT: {bot.user}")
+    print("========================================", flush=True)
+    print("CLEAR COMMAND USED", flush=True)
+    print(f"SERVER: {interaction.guild.name}", flush=True)
+    print(f"CHANNEL: #{channel.name}", flush=True)
+    print(f"USER: {interaction.user}", flush=True)
+    print(f"BOT: {bot.user}", flush=True)
     print(
-        f"VIEW CHANNEL: "
-        f"{permissions.view_channel}"
+        f"VIEW CHANNEL: {permissions.view_channel}",
+        flush=True
     )
     print(
         f"READ MESSAGE HISTORY: "
-        f"{permissions.read_message_history}"
+        f"{permissions.read_message_history}",
+        flush=True
     )
     print(
         f"MANAGE MESSAGES: "
-        f"{permissions.manage_messages}"
+        f"{permissions.manage_messages}",
+        flush=True
     )
-    print("========================================")
-    # Check View Channel
+    print("========================================", flush=True)
     if not permissions.view_channel:
         await interaction.response.send_message(
             "❌ The bot cannot View Channel.",
             ephemeral=True
         )
         return
-    # Check Read Message History
     if not permissions.read_message_history:
         await interaction.response.send_message(
             "❌ The bot cannot Read Message History.",
             ephemeral=True
         )
         return
-    # Check Manage Messages
     if not permissions.manage_messages:
         await interaction.response.send_message(
             "❌ Discord says the bot does NOT have "
@@ -160,23 +236,18 @@ async def clear(
     )
     try:
         print(
-            f"STARTING CLEAR IN #{channel.name}"
+            f"STARTING CLEAR IN #{channel.name}",
+            flush=True
         )
-        # Delete messages from the channel.
-        #
-        # discord.py handles newer messages with
-        # Discord's bulk-delete system and older
-        # messages individually.
         deleted_messages = await channel.purge(
             limit=None,
             bulk=True
         )
-        deleted_count = len(
-            deleted_messages
-        )
+        deleted_count = len(deleted_messages)
         print(
             f"CLEAR COMPLETE: "
-            f"{deleted_count} messages deleted"
+            f"{deleted_count} messages deleted",
+            flush=True
         )
         await interaction.followup.send(
             f"🧹 **Channel cleared!**\n"
@@ -185,7 +256,8 @@ async def clear(
         )
     except discord.Forbidden as error:
         print(
-            f"DISCORD FORBIDDEN ERROR: {error}"
+            f"DISCORD FORBIDDEN ERROR: {error}",
+            flush=True
         )
         await interaction.followup.send(
             "❌ Discord rejected the deletion.\n\n"
@@ -195,7 +267,8 @@ async def clear(
         )
     except discord.HTTPException as error:
         print(
-            f"DISCORD HTTP ERROR: {error}"
+            f"DISCORD HTTP ERROR: {error}",
+            flush=True
         )
         await interaction.followup.send(
             "❌ Discord returned an HTTP error "
@@ -204,7 +277,8 @@ async def clear(
         )
     except Exception as error:
         print(
-            f"CLEAR ERROR: {error}"
+            f"CLEAR ERROR: {error}",
+            flush=True
         )
         await interaction.followup.send(
             "❌ Something went wrong while clearing "
@@ -218,12 +292,23 @@ async def clear(
     name="snipe",
     description="Scan for newly detected coins"
 )
-async def snipe(
-    interaction: discord.Interaction
-):
+async def snipe(interaction: discord.Interaction):
+    print(
+        "SLASH COMMAND RUNNING: /snipe",
+        flush=True
+    )
     await interaction.response.defer()
     try:
+        print(
+            "STARTING SNIPE SCANNER...",
+            flush=True
+        )
         coins = await snipe_scan()
+        print(
+            f"SNIPE SCANNER FINISHED | RESULTS: "
+            f"{len(coins) if coins else 0}",
+            flush=True
+        )
         if not coins:
             await interaction.followup.send(
                 "🔎 No matching coins found right now."
@@ -291,8 +376,6 @@ async def snipe(
                     f"({bubble_url})\n"
                 )
             message += "\n"
-        # Discord has a 2,000 character
-        # message limit.
         if len(message) <= 2000:
             await interaction.followup.send(
                 message
@@ -316,37 +399,69 @@ async def snipe(
                 )
     except Exception as error:
         print(
-            f"SNIPE ERROR: {error}"
+            f"SNIPE ERROR: {error}",
+            flush=True
         )
         await interaction.followup.send(
             "❌ The scanner encountered an error. "
             "Check the Render logs."
         )
 # =========================================================
+# GLOBAL COMMAND ERROR HANDLER
+# =========================================================
+@bot.tree.error
+async def on_app_command_error(
+    interaction: discord.Interaction,
+    error: discord.app_commands.AppCommandError
+):
+    print(
+        "========================================",
+        flush=True
+    )
+    print(
+        "SLASH COMMAND ERROR",
+        flush=True
+    )
+    print(
+        f"ERROR TYPE: {type(error).__name__}",
+        flush=True
+    )
+    print(
+        f"ERROR: {error}",
+        flush=True
+    )
+    print(
+        "========================================",
+        flush=True
+    )
+# =========================================================
 # SLASH COMMAND SYNC
 # =========================================================
 @bot.event
 async def setup_hook():
-    print("========================================")
-    print("SYNCING SLASH COMMANDS...")
-    print("========================================")
+    print("========================================", flush=True)
+    print("SYNCING SLASH COMMANDS...", flush=True)
+    print("========================================", flush=True)
     try:
         synced = await bot.tree.sync()
         print(
-            f"SYNCED {len(synced)} SLASH COMMAND(S)"
+            f"SYNCED {len(synced)} SLASH COMMAND(S)",
+            flush=True
         )
         for command in synced:
             print(
-                f"REGISTERED: /{command.name}"
+                f"REGISTERED: /{command.name}",
+                flush=True
             )
     except Exception as error:
         print(
-            f"SLASH COMMAND SYNC ERROR: {error}"
+            f"SLASH COMMAND SYNC ERROR: {error}",
+            flush=True
         )
 # =========================================================
 # START BOT
 # =========================================================
-print("========================================")
-print("STARTING DISCORD BOT...")
-print("========================================")
+print("========================================", flush=True)
+print("STARTING DISCORD BOT...", flush=True)
+print("========================================", flush=True)
 bot.run(TOKEN)
