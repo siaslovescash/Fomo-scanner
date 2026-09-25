@@ -12,6 +12,7 @@ from scanner import snipe_scan
 # Render Health Server
 # =========================
 class HealthHandler(BaseHTTPRequestHandler):
+
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
@@ -57,7 +58,6 @@ if not TOKEN:
 # Discord Intents
 # =========================
 intents = discord.Intents.default()
-
 intents.message_content = True
 intents.members = True
 
@@ -75,6 +75,7 @@ bot = commands.Bot(
 async def gateway_monitor():
 
     try:
+
         latency = bot.latency
 
         print(
@@ -217,7 +218,6 @@ async def on_interaction(interaction):
         command_name = "UNKNOWN"
 
         if interaction.command:
-
             command_name = interaction.command.name
 
         print(
@@ -247,9 +247,22 @@ async def ping(ctx):
         flush=True
     )
 
-    await ctx.send(
-        "Pong! 🏓"
-    )
+    try:
+
+        await ctx.send("Pong! 🏓")
+
+        print(
+            "PING RESPONSE SENT | TYPE=PREFIX",
+            flush=True
+        )
+
+    except Exception as error:
+
+        print(
+            f"PING RESPONSE ERROR | TYPE=PREFIX | "
+            f"{type(error).__name__} | {error}",
+            flush=True
+        )
 
 
 # =========================
@@ -259,16 +272,63 @@ async def ping(ctx):
     name="ping",
     description="Check if the bot is online"
 )
-async def slash_ping(interaction):
+async def slash_ping(interaction: discord.Interaction):
 
     print(
-        "COMMAND: /ping",
+        f"COMMAND: /ping | USER={interaction.user}",
         flush=True
     )
 
-    await interaction.response.send_message(
-        "Pong! 🏓"
+    print(
+        f"PING STATE | "
+        f"Responded={interaction.response.is_done()} | "
+        f"Guild={interaction.guild} | "
+        f"Channel={interaction.channel}",
+        flush=True
     )
+
+    try:
+
+        await interaction.response.send_message(
+            "Pong! 🏓"
+        )
+
+        print(
+            "PING RESPONSE SENT | TYPE=SLASH",
+            flush=True
+        )
+
+    except Exception as error:
+
+        print(
+            "PING RESPONSE ERROR | "
+            f"{type(error).__name__} | {error}",
+            flush=True
+        )
+
+        # Try a follow-up if Discord already considers
+        # the interaction acknowledged.
+        try:
+
+            if interaction.response.is_done():
+
+                await interaction.followup.send(
+                    "Pong! 🏓"
+                )
+
+                print(
+                    "PING FOLLOWUP RESPONSE SENT",
+                    flush=True
+                )
+
+        except Exception as followup_error:
+
+            print(
+                "PING FOLLOWUP ERROR | "
+                f"{type(followup_error).__name__} | "
+                f"{followup_error}",
+                flush=True
+            )
 
 
 # =========================
@@ -281,7 +341,7 @@ async def slash_ping(interaction):
 @discord.app_commands.checks.has_permissions(
     manage_messages=True
 )
-async def clear(interaction):
+async def clear(interaction: discord.Interaction):
 
     print(
         f"COMMAND: /clear | USER={interaction.user}",
@@ -340,7 +400,7 @@ async def clear(interaction):
     name="snipe",
     description="Scan for newly detected coins"
 )
-async def snipe(interaction):
+async def snipe(interaction: discord.Interaction):
 
     print(
         "COMMAND: /snipe",
@@ -401,10 +461,19 @@ async def snipe(interaction):
             flush=True
         )
 
-        await interaction.followup.send(
-            "❌ The scanner encountered an error. "
-            "Check the Render logs."
-        )
+        try:
+
+            await interaction.followup.send(
+                "❌ The scanner encountered an error. "
+                "Check the Render logs."
+            )
+
+        except Exception as followup_error:
+
+            print(
+                f"SNIPE FOLLOWUP ERROR | {followup_error}",
+                flush=True
+            )
 
 
 # =========================
@@ -431,6 +500,31 @@ async def on_app_command_error(
         "========================================",
         flush=True
     )
+
+    try:
+
+        if interaction.response.is_done():
+
+            await interaction.followup.send(
+                "❌ Command error. Check the Render logs.",
+                ephemeral=True
+            )
+
+        else:
+
+            await interaction.response.send_message(
+                "❌ Command error. Check the Render logs.",
+                ephemeral=True
+            )
+
+    except Exception as response_error:
+
+        print(
+            f"COMMAND ERROR RESPONSE FAILED | "
+            f"{type(response_error).__name__} | "
+            f"{response_error}",
+            flush=True
+        )
 
 
 # =========================
