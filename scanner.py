@@ -10,7 +10,12 @@ from zoneinfo import ZoneInfo
 # ============================================================
 MIN_MARKET_CAP = 1_000
 MAX_MARKET_CAP = 500_000
+# BOTH /snipe AND /websitecoins
+MIN_LIQUIDITY = 15_000
 COINS_PER_CHAIN = 10
+# ============================================================
+# TARGET CHAINS
+# ============================================================
 TARGET_CHAINS = {
     "solana": "Solana",
     "robinhood": "Robinhood Chain",
@@ -64,7 +69,7 @@ def get_token_pairs(
     token_address
 ):
     encoded = urllib.parse.quote(
-        token_address,
+        str(token_address),
         safe=""
     )
     url = (
@@ -76,7 +81,8 @@ def get_token_pairs(
     return [
         pair
         for pair in pairs
-        if pair.get("chainId") == chain_id
+        if isinstance(pair, dict)
+        and pair.get("chainId") == chain_id
     ]
 # ============================================================
 # CHAIN NAME
@@ -140,10 +146,8 @@ def calculate_age(timestamp):
                 f"{minutes} minute(s)"
             )
         hours = minutes // 60
+        remaining_minutes = minutes % 60
         if hours < 24:
-            remaining_minutes = (
-                minutes % 60
-            )
             if remaining_minutes:
                 return (
                     f"{hours} hour(s), "
@@ -151,9 +155,7 @@ def calculate_age(timestamp):
                 )
             return f"{hours} hour(s)"
         days = hours // 24
-        remaining_hours = (
-            hours % 24
-        )
+        remaining_hours = hours % 24
         if remaining_hours:
             return (
                 f"{days} day(s), "
@@ -234,6 +236,9 @@ def extract_website(
             dict
         ):
             continue
+        # ----------------------------------------------------
+        # websites: [...]
+        # ----------------------------------------------------
         websites = obj.get(
             "websites"
         )
@@ -247,10 +252,10 @@ def extract_website(
                     str
                 ):
                     url = website.strip()
-                    if url.startswith(
-                        "http://"
-                    ) or url.startswith(
-                        "https://"
+                    if (
+                        url.startswith("http://")
+                        or
+                        url.startswith("https://")
                     ):
                         return url
                 elif isinstance(
@@ -259,33 +264,70 @@ def extract_website(
                 ):
                     url = (
                         website.get("url")
-                        or website.get("link")
+                        or
+                        website.get("link")
                     )
                     if url:
                         url = str(
                             url
                         ).strip()
-                        if url.startswith(
-                            "http://"
-                        ) or url.startswith(
-                            "https://"
+                        if (
+                            url.startswith("http://")
+                            or
+                            url.startswith("https://")
                         ):
                             return url
+        # ----------------------------------------------------
+        # direct website fields
+        # ----------------------------------------------------
         direct_website = (
             obj.get("website")
-            or obj.get("websiteUrl")
-            or obj.get("websiteURL")
+            or
+            obj.get("websiteUrl")
+            or
+            obj.get("websiteURL")
         )
         if direct_website:
             direct_website = str(
                 direct_website
             ).strip()
-            if direct_website.startswith(
-                "http://"
-            ) or direct_website.startswith(
-                "https://"
+            if (
+                direct_website.startswith("http://")
+                or
+                direct_website.startswith("https://")
             ):
                 return direct_website
+    return None
+# ============================================================
+# FOMO VERIFICATION STATUS
+# ============================================================
+#
+# IMPORTANT:
+#
+# We do NOT pretend Dexscreener data means FOMO verified.
+#
+# This function is intentionally isolated so the real FOMO
+# verification source can be connected here later.
+#
+# Until a reliable FOMO verification endpoint/data source is
+# connected, /websitecoins will NOT falsely label coins as
+# "FOMO verified."
+#
+# ============================================================
+def get_fomo_verification_status(
+    profile,
+    pair,
+    token
+):
+    # --------------------------------------------------------
+    # FOMO verification is NOT available from Dexscreener.
+    #
+    # Returning None means:
+    #
+    # VERIFIED STATUS UNKNOWN
+    #
+    # It must not be treated as verified.
+    # --------------------------------------------------------
     return None
 # ============================================================
 # SCAN ONE TOKEN PROFILE
@@ -305,7 +347,7 @@ def scan_token_profile(
     address = profile.get(
         "tokenAddress"
     )
-    # ONLY Solana and Robinhood Chain.
+    # ONLY Solana + Robinhood.
     if chain not in TARGET_CHAINS:
         return []
     if not address:
@@ -315,7 +357,14 @@ def scan_token_profile(
             chain,
             address
         )
-    except Exception:
+    except Exception as error:
+        print(
+            "PAIR REQUEST ERROR | "
+            f"CHAIN={chain} | "
+            f"ERROR={type(error).__name__} | "
+            f"{error}",
+            flush=True
+        )
         return []
     matches = []
     for pair in pairs:
@@ -324,10 +373,9 @@ def scan_token_profile(
             dict
         ):
             continue
-        if pair.get(
-            "chainId"
-        ) != chain:
-            continue
+        # ----------------------------------------------------
+        # MARKET CAP
+        # ----------------------------------------------------
         market_cap = pair.get(
             "marketCap"
         )
@@ -352,6 +400,32 @@ def scan_token_profile(
             <= MAX_MARKET_CAP
         ):
             continue
+        # ----------------------------------------------------
+        # LIQUIDITY
+        # ----------------------------------------------------
+        liquidity_data = (
+            pair.get("liquidity")
+            or {}
+        )
+        liquidity = liquidity_data.get(
+            "usd",
+            0
+        )
+        try:
+            liquidity = float(
+                liquidity
+            )
+        except (
+            TypeError,
+            ValueError
+        ):
+            liquidity = 0
+        # BOTH COMMANDS REQUIRE $15K+ LIQUIDITY.
+        if liquidity < MIN_LIQUIDITY:
+            continue
+        # ----------------------------------------------------
+        # TOKEN
+        # ----------------------------------------------------
         token = (
             pair.get("baseToken")
             or {}
@@ -368,36 +442,56 @@ def scan_token_profile(
             token.get("symbol")
             or "???"
         )
-        liquidity_data = (
-            pair.get("liquidity")
-            or {}
-        )
-        liquidity = (
-            liquidity_data.get(
-                "usd",
-                0
-            )
-        )
+        # ----------------------------------------------------
+        # VOLUME
+        # ----------------------------------------------------
         volume_data = (
             pair.get("volume")
             or {}
         )
-        volume = (
-            volume_data.get(
-                "h24",
-                0
-            )
+        volume = volume_data.get(
+            "h24",
+            0
         )
+        try:
+            volume = float(
+                volume
+            )
+        except (
+            TypeError,
+            ValueError
+        ):
+            volume = 0
+        # ----------------------------------------------------
+        # CREATION TIME
+        # ----------------------------------------------------
         created_at = pair.get(
             "pairCreatedAt"
         )
+        # ----------------------------------------------------
+        # WEBSITE
+        # ----------------------------------------------------
         website = extract_website(
             profile,
             pair,
             token
         )
+        # Website mode requires an actual website.
         if website_only and not website:
             continue
+        # ----------------------------------------------------
+        # FOMO VERIFICATION
+        # ----------------------------------------------------
+        fomo_verified = (
+            get_fomo_verification_status(
+                profile,
+                pair,
+                token
+            )
+        )
+        # ----------------------------------------------------
+        # RESULT
+        # ----------------------------------------------------
         matches.append({
             "name": name,
             "symbol": symbol,
@@ -413,8 +507,10 @@ def scan_token_profile(
                 "pairAddress"
             ),
             "created_at": created_at,
-            "created_time": format_created_time(
-                created_at
+            "created_time": (
+                format_created_time(
+                    created_at
+                )
             ),
             "age": calculate_age(
                 created_at
@@ -426,11 +522,16 @@ def scan_token_profile(
                 chain,
                 token_address
             ),
-            "bubblemaps": make_bubblemaps_url(
-                chain,
-                token_address
+            "bubblemaps": (
+                make_bubblemaps_url(
+                    chain,
+                    token_address
+                )
             ),
             "website": website,
+            "fomo_verified": (
+                fomo_verified
+            ),
         })
     return matches
 # ============================================================
@@ -454,6 +555,9 @@ def scan_new_coins(
         list
     ):
         return []
+    # --------------------------------------------------------
+    # ONLY TARGET CHAINS
+    # --------------------------------------------------------
     target_profiles = []
     for profile in profiles:
         if not isinstance(
@@ -472,10 +576,14 @@ def scan_new_coins(
         "SCANNER PROFILES | "
         f"TOTAL={len(profiles)} | "
         f"TARGET={len(target_profiles)} | "
-        f"WEBSITE_ONLY={website_only}",
+        f"WEBSITE_ONLY={website_only} | "
+        f"MIN_LIQUIDITY=${MIN_LIQUIDITY:,}",
         flush=True
     )
     results = []
+    # --------------------------------------------------------
+    # PARALLEL SCANNING
+    # --------------------------------------------------------
     with ThreadPoolExecutor(
         max_workers=8
     ) as executor:
@@ -504,9 +612,9 @@ def scan_new_coins(
                     f"{error}",
                     flush=True
                 )
-    # ========================================================
+    # --------------------------------------------------------
     # REMOVE DUPLICATES
-    # ========================================================
+    # --------------------------------------------------------
     unique = {}
     for coin in results:
         key = (
@@ -518,9 +626,9 @@ def scan_new_coins(
     results = list(
         unique.values()
     )
-    # ========================================================
+    # --------------------------------------------------------
     # NEWEST FIRST
-    # ========================================================
+    # --------------------------------------------------------
     results.sort(
         key=lambda coin: (
             coin.get("created_at")
@@ -528,28 +636,44 @@ def scan_new_coins(
         ),
         reverse=True
     )
-    # ========================================================
-    # 10 SOLANA + 10 ROBINHOOD
-    # ========================================================
+    # --------------------------------------------------------
+    # SOLANA
+    # --------------------------------------------------------
     solana = [
         coin
         for coin in results
-        if coin.get("chain") == "solana"
+        if coin.get(
+            "chain"
+        ) == "solana"
     ]
+    # --------------------------------------------------------
+    # ROBINHOOD
+    # --------------------------------------------------------
     robinhood = [
         coin
         for coin in results
-        if coin.get("chain") == "robinhood"
+        if coin.get(
+            "chain"
+        ) == "robinhood"
     ]
+    # --------------------------------------------------------
+    # LIMIT EACH CHAIN TO 10
+    # --------------------------------------------------------
     solana = solana[
         :COINS_PER_CHAIN
     ]
     robinhood = robinhood[
         :COINS_PER_CHAIN
     ]
-    # ========================================================
-    # INTERLEAVE THE TWO CHAINS
-    # ========================================================
+    # --------------------------------------------------------
+    # INTERLEAVE
+    #
+    # 1 Solana
+    # 1 Robinhood
+    # 1 Solana
+    # 1 Robinhood
+    # ...
+    # --------------------------------------------------------
     final_results = []
     for index in range(
         COINS_PER_CHAIN
@@ -562,16 +686,20 @@ def scan_new_coins(
             final_results.append(
                 robinhood[index]
             )
+    # --------------------------------------------------------
+    # LOG RESULTS
+    # --------------------------------------------------------
     print(
         "SCANNER RESULTS | "
         f"SOLANA={len(solana)} | "
         f"ROBINHOOD={len(robinhood)} | "
-        f"TOTAL={len(final_results)}",
+        f"TOTAL={len(final_results)} | "
+        f"MIN_LIQUIDITY=${MIN_LIQUIDITY:,}",
         flush=True
     )
     return final_results
 # ============================================================
-# /SNIPE SCANNER
+# /SNIPE
 # ============================================================
 async def snipe_scan():
     return await asyncio.to_thread(
@@ -579,7 +707,7 @@ async def snipe_scan():
         False
     )
 # ============================================================
-# /WEBSITECOINS SCANNER
+# /WEBSITECOINS
 # ============================================================
 async def websitecoins_scan():
     return await asyncio.to_thread(
