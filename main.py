@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import discord
 from discord.ext import commands, tasks
 
-from scanner import snipe_scan
+from scanner import snipe_scan, websitecoins_scan
 
 
 # ============================================================
@@ -248,6 +248,7 @@ async def on_resumed():
 
 @bot.event
 async def on_socket_event_type(event_type):
+
     mark_socket_activity()
 
     important_events = {
@@ -272,9 +273,11 @@ async def on_socket_event_type(event_type):
 
 @bot.event
 async def on_socket_raw_receive(payload):
+
     mark_socket_activity()
 
     try:
+
         if isinstance(payload, str):
 
             if '"t":"INTERACTION_CREATE"' in payload:
@@ -284,6 +287,7 @@ async def on_socket_raw_receive(payload):
                 )
 
     except Exception as error:
+
         print(
             "RAW SOCKET RECEIVE ERROR | "
             f"{type(error).__name__} | {error}",
@@ -326,6 +330,7 @@ async def on_ready():
     )
 
     for guild in bot.guilds:
+
         print(
             f"GUILD: {guild.name} | {guild.id}",
             flush=True
@@ -342,6 +347,7 @@ async def on_ready():
     )
 
     if not gateway_monitor.is_running():
+
         gateway_monitor.start()
 
         print(
@@ -362,10 +368,13 @@ async def gateway_monitor():
         ws = getattr(bot, "ws", None)
 
         if ws is None:
+
             websocket_state = "NONE"
 
         else:
+
             try:
+
                 websocket_state = (
                     "CLOSED"
                     if ws.is_closed()
@@ -373,6 +382,7 @@ async def gateway_monitor():
                 )
 
             except Exception:
+
                 websocket_state = "UNKNOWN"
 
         connected = (
@@ -437,10 +447,13 @@ async def connection_watchdog():
         ws = getattr(bot, "ws", None)
 
         if ws is None:
+
             websocket_state = "NONE"
 
         else:
+
             try:
+
                 websocket_state = (
                     "CLOSED"
                     if ws.is_closed()
@@ -448,6 +461,7 @@ async def connection_watchdog():
                 )
 
             except Exception:
+
                 websocket_state = "UNKNOWN"
 
         print(
@@ -692,12 +706,229 @@ async def clear(interaction):
 
 
 # ============================================================
+# MONEY FORMAT
+# ============================================================
+
+def format_money(value):
+
+    try:
+
+        value = float(value)
+
+    except Exception:
+
+        return "$0"
+
+    if value >= 1_000_000_000:
+        return f"${value / 1_000_000_000:.2f}B"
+
+    if value >= 1_000_000:
+        return f"${value / 1_000_000:.2f}M"
+
+    if value >= 1_000:
+        return f"${value / 1_000:.1f}K"
+
+    return f"${value:.2f}"
+
+
+# ============================================================
+# COIN EMBED
+# ============================================================
+
+def create_coin_embed(coin, number, mode="snipe"):
+
+    name = coin.get("name", "Unknown")
+    symbol = coin.get("symbol", "???")
+
+    chain_name = coin.get(
+        "chain_name",
+        coin.get("chain", "Unknown")
+    )
+
+    market_cap = coin.get(
+        "market_cap",
+        0
+    )
+
+    liquidity = coin.get(
+        "liquidity",
+        0
+    )
+
+    volume = coin.get(
+        "volume_24h",
+        0
+    )
+
+    address = coin.get(
+        "address",
+        "Unknown"
+    )
+
+    created_time = coin.get(
+        "created_time",
+        "Unknown"
+    )
+
+    age = coin.get(
+        "age",
+        "Unknown"
+    )
+
+    fomo_url = coin.get(
+        "fomo_url"
+    )
+
+    bubblemaps_url = coin.get(
+        "bubblemaps"
+    )
+
+    website = coin.get(
+        "website"
+    )
+
+    embed = discord.Embed(
+        title=f"🪙 #{number} {name} ({symbol})",
+        description=f"**{chain_name}**",
+        timestamp=discord.utils.utcnow()
+    )
+
+    embed.add_field(
+        name="💰 Market Cap",
+        value=format_money(market_cap),
+        inline=True
+    )
+
+    embed.add_field(
+        name="💧 Liquidity",
+        value=format_money(liquidity),
+        inline=True
+    )
+
+    embed.add_field(
+        name="📊 24h Volume",
+        value=format_money(volume),
+        inline=True
+    )
+
+    embed.add_field(
+        name="🕐 Creation Time",
+        value=str(created_time),
+        inline=True
+    )
+
+    embed.add_field(
+        name="⏱️ Running Time",
+        value=str(age),
+        inline=True
+    )
+
+    embed.add_field(
+        name="🔗 Contract",
+        value=f"`{address}`",
+        inline=False
+    )
+
+    if fomo_url:
+
+        embed.add_field(
+            name="🔥 FOMO",
+            value=f"[Open Coin in FOMO]({fomo_url})",
+            inline=True
+        )
+
+    if bubblemaps_url:
+
+        embed.add_field(
+            name="🫧 Bubblemaps",
+            value=f"[View Map]({bubblemaps_url})",
+            inline=True
+        )
+
+    if mode == "website" and website:
+
+        embed.add_field(
+            name="🌐 Website",
+            value=f"[Open Website]({website})",
+            inline=False
+        )
+
+    embed.set_footer(
+        text=(
+            "FOMO Website Coins"
+            if mode == "website"
+            else "FOMO Snipe"
+        )
+    )
+
+    return embed
+
+
+# ============================================================
+# SEND COIN RESULTS
+# ============================================================
+
+async def send_coin_results(
+    interaction,
+    coins,
+    title,
+    mode="snipe"
+):
+
+    if not coins:
+
+        await interaction.followup.send(
+            "No qualifying coins found."
+        )
+
+        return
+
+    # Discord allows a maximum of 10 embeds
+    # in one message.
+    for start in range(
+        0,
+        len(coins),
+        10
+    ):
+
+        batch = coins[
+            start:start + 10
+        ]
+
+        embeds = []
+
+        for index, coin in enumerate(
+            batch,
+            start=start + 1
+        ):
+
+            embeds.append(
+                create_coin_embed(
+                    coin,
+                    index,
+                    mode
+                )
+            )
+
+        content = None
+
+        if start == 0:
+
+            content = title
+
+        await interaction.followup.send(
+            content=content,
+            embeds=embeds
+        )
+
+
+# ============================================================
 # /SNIPE
 # ============================================================
 
 @bot.tree.command(
     name="snipe",
-    description="Scan for newly detected coins"
+    description="Scan for newly detected Solana and Robinhood Chain coins"
 )
 async def snipe(interaction):
 
@@ -735,35 +966,12 @@ async def snipe(interaction):
             flush=True
         )
 
-        if not coins:
-
-            await interaction.followup.send(
-                "No coins found."
-            )
-
-            return
-
-        message = ""
-
-        for coin in coins:
-
-            line = str(coin) + "\n"
-
-            if len(message) + len(line) > 1900:
-
-                await interaction.followup.send(
-                    message
-                )
-
-                message = ""
-
-            message += line
-
-        if message:
-
-            await interaction.followup.send(
-                message
-            )
+        await send_coin_results(
+            interaction,
+            coins,
+            "🔥 **FOMO SNIPE — SOLANA + ROBINHOOD CHAIN**",
+            "snipe"
+        )
 
     except Exception as error:
 
@@ -791,11 +999,90 @@ async def snipe(interaction):
 
 
 # ============================================================
+# /WEBSITECOINS
+# ============================================================
+
+@bot.tree.command(
+    name="websitecoins",
+    description="Find Solana and Robinhood Chain coins with websites"
+)
+async def websitecoins(interaction):
+
+    print(
+        f"COMMAND: /websitecoins | USER={interaction.user}",
+        flush=True
+    )
+
+    try:
+
+        await interaction.response.defer()
+
+    except Exception as error:
+
+        print(
+            "WEBSITECOINS DEFER ERROR | "
+            f"{type(error).__name__} | {error}",
+            flush=True
+        )
+
+        return
+
+    try:
+
+        print(
+            "WEBSITE COIN SCANNER STARTING",
+            flush=True
+        )
+
+        coins = await websitecoins_scan()
+
+        print(
+            "WEBSITE COIN SCANNER FINISHED | "
+            f"RESULTS={len(coins) if coins else 0}",
+            flush=True
+        )
+
+        await send_coin_results(
+            interaction,
+            coins,
+            "🌐 **FOMO WEBSITE COINS — SOLANA + ROBINHOOD CHAIN**",
+            "website"
+        )
+
+    except Exception as error:
+
+        print(
+            "WEBSITECOINS ERROR | "
+            f"{type(error).__name__} | {error}",
+            flush=True
+        )
+
+        try:
+
+            await interaction.followup.send(
+                "❌ The website coin scanner encountered an error. "
+                "Check the Render logs."
+            )
+
+        except Exception as followup_error:
+
+            print(
+                "WEBSITECOINS FOLLOWUP ERROR | "
+                f"{type(followup_error).__name__} | "
+                f"{followup_error}",
+                flush=True
+            )
+
+
+# ============================================================
 # SLASH COMMAND ERROR HANDLER
 # ============================================================
 
 @bot.tree.error
-async def on_app_command_error(interaction, error):
+async def on_app_command_error(
+    interaction,
+    error
+):
 
     print(
         "========================================",
@@ -889,9 +1176,14 @@ async def setup_hook():
 # PROCESS SIGNAL HANDLERS
 # ============================================================
 
-def shutdown_signal_handler(signum, frame):
+def shutdown_signal_handler(
+    signum,
+    frame
+):
 
-    signal_name = signal.Signals(signum).name
+    signal_name = signal.Signals(
+        signum
+    ).name
 
     print(
         "========================================",
@@ -982,6 +1274,26 @@ print(
 
 print(
     "WEBSOCKET DIAGNOSTICS: ENABLED",
+    flush=True
+)
+
+print(
+    "FOMO SCANNER: ENABLED",
+    flush=True
+)
+
+print(
+    "TARGET CHAINS: SOLANA + ROBINHOOD",
+    flush=True
+)
+
+print(
+    "TARGET RESULTS: 10 SOLANA + 10 ROBINHOOD",
+    flush=True
+)
+
+print(
+    "COMMANDS: /ping /clear /snipe /websitecoins",
     flush=True
 )
 
