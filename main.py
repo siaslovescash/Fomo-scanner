@@ -15,7 +15,8 @@ from scanner import snipe_scan
 # ============================================================
 
 START_TIME = time.time()
-LAST_REAL_GATEWAY_EVENT = time.time()
+LAST_SOCKET_EVENT = time.time()
+LAST_INTERACTION = 0
 GATEWAY_CONNECTED = False
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -39,17 +40,18 @@ intents.members = True
 
 bot = commands.Bot(
     command_prefix="!",
-    intents=intents
+    intents=intents,
+    enable_debug_events=True
 )
 
 
 # ============================================================
-# REAL GATEWAY ACTIVITY
+# SOCKET ACTIVITY
 # ============================================================
 
-def mark_gateway_activity():
-    global LAST_REAL_GATEWAY_EVENT
-    LAST_REAL_GATEWAY_EVENT = time.time()
+def mark_socket_activity():
+    global LAST_SOCKET_EVENT
+    LAST_SOCKET_EVENT = time.time()
 
 
 # ============================================================
@@ -67,10 +69,25 @@ class HealthHandler(BaseHTTPRequestHandler):
             else:
                 gateway_status = "DISCONNECTED"
 
+            ws = getattr(bot, "ws", None)
+
+            if ws is None:
+                websocket_status = "NONE"
+            else:
+                try:
+                    websocket_status = (
+                        "CLOSED"
+                        if ws.is_closed()
+                        else "OPEN"
+                    )
+                except Exception:
+                    websocket_status = "UNKNOWN"
+
             body = (
                 "Discord bot is running!\n"
                 f"Uptime: {uptime}s\n"
                 f"Gateway: {gateway_status}\n"
+                f"WebSocket: {websocket_status}\n"
                 f"Bot Ready: {bot.is_ready()}\n"
                 f"Bot: {bot.user}\n"
             )
@@ -142,7 +159,7 @@ async def on_connect():
     global GATEWAY_CONNECTED
 
     GATEWAY_CONNECTED = True
-    mark_gateway_activity()
+    mark_socket_activity()
 
     print(
         "========================================",
@@ -202,7 +219,7 @@ async def on_resumed():
     global GATEWAY_CONNECTED
 
     GATEWAY_CONNECTED = True
-    mark_gateway_activity()
+    mark_socket_activity()
 
     print(
         "========================================",
@@ -226,13 +243,62 @@ async def on_resumed():
 
 
 # ============================================================
+# RAW SOCKET EVENT DIAGNOSTIC
+# ============================================================
+
+@bot.event
+async def on_socket_event_type(event_type):
+    mark_socket_activity()
+
+    important_events = {
+        "READY",
+        "RESUMED",
+        "INTERACTION_CREATE",
+        "MESSAGE_CREATE",
+        "GUILD_CREATE",
+        "HEARTBEAT_ACK",
+    }
+
+    if event_type in important_events:
+        print(
+            f"SOCKET EVENT | {event_type}",
+            flush=True
+        )
+
+
+# ============================================================
+# RAW SOCKET RECEIVE DIAGNOSTIC
+# ============================================================
+
+@bot.event
+async def on_socket_raw_receive(payload):
+    mark_socket_activity()
+
+    try:
+        if isinstance(payload, str):
+
+            if '"t":"INTERACTION_CREATE"' in payload:
+                print(
+                    "RAW SOCKET EVENT | INTERACTION_CREATE RECEIVED",
+                    flush=True
+                )
+
+    except Exception as error:
+        print(
+            "RAW SOCKET RECEIVE ERROR | "
+            f"{type(error).__name__} | {error}",
+            flush=True
+        )
+
+
+# ============================================================
 # BOT READY
 # ============================================================
 
 @bot.event
 async def on_ready():
 
-    mark_gateway_activity()
+    mark_socket_activity()
 
     print(
         "========================================",
@@ -293,11 +359,26 @@ async def gateway_monitor():
 
     try:
 
-        latency = bot.latency
+        ws = getattr(bot, "ws", None)
+
+        if ws is None:
+            websocket_state = "NONE"
+
+        else:
+            try:
+                websocket_state = (
+                    "CLOSED"
+                    if ws.is_closed()
+                    else "OPEN"
+                )
+
+            except Exception:
+                websocket_state = "UNKNOWN"
 
         connected = (
             bot.is_ready()
             and GATEWAY_CONNECTED
+            and websocket_state == "OPEN"
         )
 
         state = (
@@ -306,17 +387,25 @@ async def gateway_monitor():
             else "DISCONNECTED"
         )
 
-        real_event_age = (
-            time.time() - LAST_REAL_GATEWAY_EVENT
+        socket_idle = (
+            time.time() - LAST_SOCKET_EVENT
+        )
+
+        interaction_age = (
+            "NEVER"
+            if LAST_INTERACTION == 0
+            else f"{time.time() - LAST_INTERACTION:.0f}s"
         )
 
         print(
             "GATEWAY STATUS | "
             f"State={state} | "
             f"Ready={bot.is_ready()} | "
-            f"Latency={latency * 1000:.0f}ms | "
+            f"WebSocket={websocket_state} | "
+            f"Latency={bot.latency * 1000:.0f}ms | "
             f"Guilds={len(bot.guilds)} | "
-            f"LastRealEvent={real_event_age:.0f}s | "
+            f"SocketIdle={socket_idle:.0f}s | "
+            f"LastInteraction={interaction_age} | "
             f"User={bot.user}",
             flush=True
         )
@@ -345,32 +434,30 @@ async def connection_watchdog():
 
     try:
 
-        connected = (
-            bot.is_ready()
-            and GATEWAY_CONNECTED
-        )
+        ws = getattr(bot, "ws", None)
 
-        state = (
-            "CONNECTED"
-            if connected
-            else "DISCONNECTED"
-        )
+        if ws is None:
+            websocket_state = "NONE"
+
+        else:
+            try:
+                websocket_state = (
+                    "CLOSED"
+                    if ws.is_closed()
+                    else "OPEN"
+                )
+
+            except Exception:
+                websocket_state = "UNKNOWN"
 
         print(
             "WATCHDOG | "
-            f"State={state} | "
             f"Ready={bot.is_ready()} | "
+            f"GatewayConnected={GATEWAY_CONNECTED} | "
+            f"WebSocket={websocket_state} | "
             f"User={bot.user}",
             flush=True
         )
-
-        if not connected:
-
-            print(
-                "WATCHDOG WARNING | "
-                "Discord Gateway is not connected.",
-                flush=True
-            )
 
     except Exception as error:
 
@@ -424,6 +511,10 @@ async def on_message(message):
 
 @bot.event
 async def on_interaction(interaction):
+
+    global LAST_INTERACTION
+
+    LAST_INTERACTION = time.time()
 
     try:
 
@@ -599,31 +690,6 @@ async def clear(interaction):
             flush=True
         )
 
-        try:
-
-            if interaction.response.is_done():
-
-                await interaction.followup.send(
-                    "❌ I couldn't clear the messages.",
-                    ephemeral=True
-                )
-
-            else:
-
-                await interaction.response.send_message(
-                    "❌ I couldn't clear the messages.",
-                    ephemeral=True
-                )
-
-        except Exception as response_error:
-
-            print(
-                "CLEAR ERROR RESPONSE FAILED | "
-                f"{type(response_error).__name__} | "
-                f"{response_error}",
-                flush=True
-            )
-
 
 # ============================================================
 # /SNIPE
@@ -729,10 +795,7 @@ async def snipe(interaction):
 # ============================================================
 
 @bot.tree.error
-async def on_app_command_error(
-    interaction,
-    error
-):
+async def on_app_command_error(interaction, error):
 
     print(
         "========================================",
@@ -918,7 +981,7 @@ print(
 )
 
 print(
-    "GATEWAY STATE TRACKING: ENABLED",
+    "WEBSOCKET DIAGNOSTICS: ENABLED",
     flush=True
 )
 
