@@ -15,7 +15,8 @@ from scanner import snipe_scan
 # ============================================================
 
 START_TIME = time.time()
-LAST_GATEWAY_ACTIVITY = time.time()
+LAST_REAL_GATEWAY_EVENT = time.time()
+GATEWAY_CONNECTED = False
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -24,7 +25,7 @@ if not TOKEN:
 
 
 # ============================================================
-# DISCORD INTENTS
+# INTENTS
 # ============================================================
 
 intents = discord.Intents.default()
@@ -43,12 +44,12 @@ bot = commands.Bot(
 
 
 # ============================================================
-# GATEWAY ACTIVITY
+# REAL GATEWAY ACTIVITY
 # ============================================================
 
 def mark_gateway_activity():
-    global LAST_GATEWAY_ACTIVITY
-    LAST_GATEWAY_ACTIVITY = time.time()
+    global LAST_REAL_GATEWAY_EVENT
+    LAST_REAL_GATEWAY_EVENT = time.time()
 
 
 # ============================================================
@@ -58,19 +59,19 @@ def mark_gateway_activity():
 class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
-
         try:
             uptime = int(time.time() - START_TIME)
 
-            if bot.is_ready():
-                gateway_status = "True"
+            if bot.is_ready() and GATEWAY_CONNECTED:
+                gateway_status = "CONNECTED"
             else:
-                gateway_status = "False"
+                gateway_status = "DISCONNECTED"
 
             body = (
                 "Discord bot is running!\n"
                 f"Uptime: {uptime}s\n"
-                f"Gateway ready: {gateway_status}\n"
+                f"Gateway: {gateway_status}\n"
+                f"Bot Ready: {bot.is_ready()}\n"
                 f"Bot: {bot.user}\n"
             )
 
@@ -90,9 +91,8 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.wfile.write(body_bytes)
 
         except Exception as error:
-
             print(
-                f"HEALTH SERVER ERROR | "
+                "HEALTH SERVER ERROR | "
                 f"{type(error).__name__} | {error}",
                 flush=True
             )
@@ -102,15 +102,8 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 
 def start_web_server():
-
     try:
-
-        port = int(
-            os.getenv(
-                "PORT",
-                "10000"
-            )
-        )
+        port = int(os.getenv("PORT", "10000"))
 
         server = HTTPServer(
             ("0.0.0.0", port),
@@ -125,7 +118,6 @@ def start_web_server():
         server.serve_forever()
 
     except Exception as error:
-
         print(
             "WEB SERVER FATAL ERROR | "
             f"{type(error).__name__} | {error}",
@@ -142,44 +134,99 @@ web_thread.start()
 
 
 # ============================================================
-# GATEWAY EVENTS
+# DISCORD GATEWAY EVENTS
 # ============================================================
 
 @bot.event
 async def on_connect():
+    global GATEWAY_CONNECTED
 
+    GATEWAY_CONNECTED = True
     mark_gateway_activity()
+
+    print(
+        "========================================",
+        flush=True
+    )
 
     print(
         "EVENT: DISCORD CONNECTED TO GATEWAY",
         flush=True
     )
 
+    print(
+        "GATEWAY STATE: CONNECTED",
+        flush=True
+    )
+
+    print(
+        "========================================",
+        flush=True
+    )
+
 
 @bot.event
 async def on_disconnect():
+    global GATEWAY_CONNECTED
 
-    mark_gateway_activity()
+    GATEWAY_CONNECTED = False
+
+    print(
+        "========================================",
+        flush=True
+    )
 
     print(
         "EVENT: DISCORD DISCONNECTED FROM GATEWAY",
         flush=True
     )
 
+    print(
+        "GATEWAY STATE: DISCONNECTED",
+        flush=True
+    )
+
+    print(
+        "DISCORD.PY WILL ATTEMPT TO RECONNECT",
+        flush=True
+    )
+
+    print(
+        "========================================",
+        flush=True
+    )
+
 
 @bot.event
 async def on_resumed():
+    global GATEWAY_CONNECTED
 
+    GATEWAY_CONNECTED = True
     mark_gateway_activity()
+
+    print(
+        "========================================",
+        flush=True
+    )
 
     print(
         "EVENT: DISCORD SESSION RESUMED",
         flush=True
     )
 
+    print(
+        "GATEWAY STATE: CONNECTED",
+        flush=True
+    )
+
+    print(
+        "========================================",
+        flush=True
+    )
+
 
 # ============================================================
-# READY
+# BOT READY
 # ============================================================
 
 @bot.event
@@ -213,11 +260,15 @@ async def on_ready():
     )
 
     for guild in bot.guilds:
-
         print(
             f"GUILD: {guild.name} | {guild.id}",
             flush=True
         )
+
+    print(
+        "GATEWAY STATE: CONNECTED",
+        flush=True
+    )
 
     print(
         "========================================",
@@ -225,7 +276,6 @@ async def on_ready():
     )
 
     if not gateway_monitor.is_running():
-
         gateway_monitor.start()
 
         print(
@@ -243,15 +293,30 @@ async def gateway_monitor():
 
     try:
 
-        mark_gateway_activity()
-
         latency = bot.latency
+
+        connected = (
+            bot.is_ready()
+            and GATEWAY_CONNECTED
+        )
+
+        state = (
+            "CONNECTED"
+            if connected
+            else "DISCONNECTED"
+        )
+
+        real_event_age = (
+            time.time() - LAST_REAL_GATEWAY_EVENT
+        )
 
         print(
             "GATEWAY STATUS | "
+            f"State={state} | "
             f"Ready={bot.is_ready()} | "
             f"Latency={latency * 1000:.0f}ms | "
             f"Guilds={len(bot.guilds)} | "
+            f"LastRealEvent={real_event_age:.0f}s | "
             f"User={bot.user}",
             flush=True
         )
@@ -280,25 +345,30 @@ async def connection_watchdog():
 
     try:
 
-        now = time.time()
+        connected = (
+            bot.is_ready()
+            and GATEWAY_CONNECTED
+        )
 
-        idle_seconds = (
-            now - LAST_GATEWAY_ACTIVITY
+        state = (
+            "CONNECTED"
+            if connected
+            else "DISCONNECTED"
         )
 
         print(
             "WATCHDOG | "
+            f"State={state} | "
             f"Ready={bot.is_ready()} | "
-            f"GatewayIdle={idle_seconds:.0f}s | "
             f"User={bot.user}",
             flush=True
         )
 
-        if not bot.is_ready():
+        if not connected:
 
             print(
                 "WATCHDOG WARNING | "
-                "Discord Gateway is not ready.",
+                "Discord Gateway is not connected.",
                 flush=True
             )
 
@@ -393,9 +463,7 @@ async def ping(ctx):
 
     try:
 
-        await ctx.send(
-            "Pong! 🏓"
-        )
+        await ctx.send("Pong! 🏓")
 
         print(
             "PING RESPONSE SENT | TYPE=PREFIX",
@@ -483,10 +551,7 @@ async def clear(interaction):
 
     channel = interaction.channel
 
-    if not isinstance(
-        channel,
-        discord.TextChannel
-    ):
+    if not isinstance(channel, discord.TextChannel):
 
         await interaction.response.send_message(
             "❌ This command can only be used in a text channel.",
@@ -761,14 +826,9 @@ async def setup_hook():
 # PROCESS SIGNAL HANDLERS
 # ============================================================
 
-def shutdown_signal_handler(
-    signum,
-    frame
-):
+def shutdown_signal_handler(signum, frame):
 
-    signal_name = signal.Signals(
-        signum
-    ).name
+    signal_name = signal.Signals(signum).name
 
     print(
         "========================================",
@@ -854,6 +914,11 @@ print(
 
 print(
     "DISCORD RECONNECT: ENABLED",
+    flush=True
+)
+
+print(
+    "GATEWAY STATE TRACKING: ENABLED",
     flush=True
 )
 
